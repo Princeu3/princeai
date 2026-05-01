@@ -341,3 +341,56 @@ This is the contents of `server/integrations.json`. **Adding a new integration =
 3. **GitHub auth UX**: "run this in your terminal" modal (cheap, ~30 min) vs embedded xterm.js pty (correct but +1 sprint). *Default: instructions modal; embedded pty as Sprint 7 if you miss it.*
 4. **Reddit MCP rate-limit tier**: zero-config gives 10 req/min, optional Reddit OAuth bumps to 60 or 100. *Default: ship zero-config; add an "Authenticate" button on the Reddit card later if you hit the limit.*
 5. **Web Search redundancy**: shipping both Exa and Tavily means Claude has two web-search MCPs available. *Default: keep both — they have different strengths (Exa for code/semantic, Tavily for general web + extract/crawl); per-session toggle lets you pick.*
+
+---
+
+## Sprint 1 — post-merge findings & future action items
+
+Captured during browser smoke testing 2026-04-30 (no fixes shipped — these are TODO).
+
+### Verified working (Sprint 1 goals fully met)
+
+- ✅ Sidebar branding shows **PrinceAI** (Sidebar.tsx line 57 + `<title>` + root package.json `name`)
+- ✅ Server boot, REST, WS handshake, Vite dev/prod build paths
+- ✅ Session creation in `~/Developer/Personal` flow end-to-end (cwd, model, permission mode, custom title)
+- ✅ Model resolution from `~/.claude/settings.json` (`opus[1m]` → `claude-opus-4-7[1m]` shown in chat header)
+- ✅ Streaming output — assistant text deltas, turn-complete with cost (`$0.4307`) and duration
+- ✅ **Session persistence + sidebar listing** — "Testing On Personal Dir" survived server restart, `GET /api/sessions` returns it from SQLite metadata
+- ✅ **Multi-turn context retention** — "what did I ask before?" correctly recalled prior turns
+- ✅ **Tool-use cards render** — `ToolSearch` and `mcp__claude_ai_Context7__resolve-library-id` invocations show as inline tool cards with input summaries
+- ✅ **Hooks fire correctly** — claude-mem SessionStart hooks complete; `system/init` event arrives ~30–60s after spawn
+
+### Issues found — future action items (FAIs)
+
+**FAI-1 — `claude-mem` is 7 patch releases behind, slow Stop hook = `summarize` worker action**
+- Installed: `12.2.0` · Latest: `12.4.9` (released today 2026-04-30)
+- Confirmed sole source of slow Stop hook (`hook claude-code summarize`, 120s timeout, observed 1m14s).
+- Relevant upstream fixes since 12.2.0:
+  - **v12.4.5** — observation persistence on fresh installs (missing columns caused silent retries)
+  - **v12.4.7** — `perf: streamline worker startup and consolidate database connections` + multi-account isolation
+  - **v12.4.4** — stop draining queue on `/clear` (affects SessionEnd flow)
+  - **v12.4.9** — bundle drift, privacy-tag stripping, Windows respawn (7 critical fixes)
+- **Action**: upgrade to `12.4.9` (`claude plugin update claude-mem` or via `/plugin`).
+- **Risk**: low; patch releases. v12.4.7's worker-startup perf rework is the most direct fix for the Stop-hook latency you're seeing.
+
+**FAI-2 — MCP permission gate has no UI prompt → dead-end in `acceptEdits` mode** *(architectural)*
+- Observed: asking Claude to use `mcp__claude_ai_Context7__resolve-library-id` returned *"Claude requested permissions to use…, but you haven't granted it yet"* — no UI prompt appeared. Saying "i approve" in chat does nothing because that's just a user message, not the permission API.
+- Root cause: `--permission-mode acceptEdits` only auto-approves Edit/Write file tools. MCP tools require either `bypassPermissions` mode, an `--allowed-tools` whitelist passed at spawn, or a `--permission-prompt-tool` (custom MCP that surfaces approval UI). Upstream lucasprim only exposes the three headless-compatible modes and notes the gap explicitly.
+- **Three implementation options for Sprint 4–5**, in order of simplicity:
+  1. **Whitelist via `--allowed-tools` per-session** — when the user toggles an integration ON in `NewSessionModal`, the server adds `mcp__<id>__*` to `--allowed-tools`. Best fit for our Connections panel architecture; effectively turns the toggle into the permission grant. *(Recommended for Sprint 5.)*
+  2. **Custom permission-prompt MCP tool** — extend `server/src/mcp/worker.ts` (already has the pattern via `ask_user_question`) to expose a `mcp__ccweb__permission_prompt` tool, then spawn claude with `--permission-prompt-tool mcp__ccweb__permission_prompt`. Renders an Allow/Deny card in chat per request. Better DX for ad-hoc permissions.
+  3. **`bypassPermissions` default for sessions with toggled integrations** — pragmatic but loses the safety net.
+
+**FAI-3 — Phantom prior-prompt in transcript** *(investigative, low priority)*
+- Observed: when asked "what did I ask before?", Claude reported a prior user turn that read *"Continue from where you left off."* — the user never typed that. Likely a plugin injects a hidden user message via UserPromptSubmit hook (claude-mem's `session-init` action does context injection).
+- **Action**: confirm by tailing the JSONL at `~/.claude/projects/-Users-prince-Developer-Personal/<session-uuid>.jsonl` and grepping for `"role":"user"` entries. If claude-mem injects, we may want to strip or label such entries when replaying history in our UI.
+
+**FAI-4 — `agent-browser click @ref` and `find role click` don't trigger React handlers** *(test infra)*
+- Both `agent-browser click @ref` and `find role button click --name "..."` dispatch click events that React's synthetic event system does not pick up in this version. Native `element.click()` via `agent-browser eval '(() => { ... })()'` works.
+- **Action**: standardize browser-test helpers around the eval pattern. If we automate Sprint 4+ test flows, build a tiny shell wrapper:
+  ```bash
+  agbrowser-click() { agent-browser eval "(() => { Array.from(document.querySelectorAll('button')).find(b => b.textContent === '$1').click(); })()"; }
+  ```
+
+**FAI-5 — Slow first-token (claude-mem-induced)** *(UX, after FAI-1 fix)*
+- After FAI-1 upgrade, re-time. If still >5s, add a "Starting session… (running hooks)" indicator in `ChatView.tsx` that shows between `new_session` send and first event arrival. Don't strip user hooks — preserve full feature parity with terminal Claude Code.

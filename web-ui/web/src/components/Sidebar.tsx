@@ -54,7 +54,7 @@ export function Sidebar({
   return (
     <aside className="flex h-full w-72 flex-col border-r border-neutral-800 bg-neutral-950">
       <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-        <div className="font-semibold">Claude Code</div>
+        <div className="font-semibold">PrinceAI</div>
         <button
           onClick={onNewSession}
           className="rounded bg-amber-500 px-2 py-1 text-xs font-medium text-neutral-950 hover:bg-amber-400"
