@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StreamJsonDecoder, encodeUserText, type DecodedEvent } from "./proto.js";
-import type { PermissionMode } from "@ccweb/shared";
+import type { PermissionMode, Platform } from "@ccweb/shared";
 import { config } from "../config.js";
 import { internalToken } from "../routes/internal.js";
 
@@ -25,10 +25,27 @@ const here = dirname(fileURLToPath(import.meta.url));
 // server/src/sessions → server/src/mcp/worker.ts
 const MCP_WORKER_PATH = join(here, "..", "mcp", "worker.ts");
 
+// Stdio MCP server descriptor as understood by `claude --mcp-config`.
+// Spec: https://code.claude.com/docs/en/mcp
+export interface McpServerSpec {
+  type: "stdio";
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
 export interface SessionStartOptions {
   cwd: string;
   permissionMode: PermissionMode;
   resumeSessionId?: string;
+  // IDs of integrations enabled for this session. Drives the
+  // `--allowed-tools` whitelist and a system-prompt nudge listing the
+  // active CLI-backed channels. Defaults to [] (no integrations).
+  enabledIntegrations?: Platform[];
+  // Extra MCP servers to splice into the `--mcp-config` JSON alongside
+  // the always-present `ccweb` worker. Sprint 3's registry produces this
+  // map; Sprint 2 plumbs the parameter through with default {}.
+  extraMcpServers?: Record<string, McpServerSpec>;
 }
 
 export type SessionEvent =
@@ -44,10 +61,77 @@ export type SessionSubscriber = (event: SessionEvent) => void;
 // has the exact same schema so Claude's prompting habits transfer cleanly.
 const UI_SYSTEM_PROMPT = `You are running inside a web chat UI. Structured multi-choice questions are available via the \`mcp__ccweb__ask_user_question\` tool — use it whenever you would normally call \`AskUserQuestion\`. It accepts the same { questions: [{ question, header, multiSelect, options: [{ label, description }] }] } shape and the user's picks are returned as plain text. Do NOT call \`AskUserQuestion\` itself — it is disabled in this environment.`;
 
+// Pure builder for the `claude` CLI argv. Exported so the smoke test can
+// assert flag composition without spawning a subprocess. The Session class
+// just calls this with its own fields.
+export function buildClaudeArgs(opts: {
+  permissionMode: PermissionMode;
+  resumeSessionId?: string;
+  enabledIntegrations: ReadonlyArray<Platform>;
+  extraMcpServers: Readonly<Record<string, McpServerSpec>>;
+}): string[] {
+  const mcpConfig = JSON.stringify({
+    mcpServers: {
+      // The ccweb worker is always present — it owns ask_user_question and
+      // forwards to our HTTP route. Sprint 3+ MCPs splice in alongside.
+      ccweb: {
+        type: "stdio",
+        command: "npx",
+        args: ["--yes", "tsx", MCP_WORKER_PATH],
+      },
+      ...opts.extraMcpServers,
+    },
+  });
+
+  // For each enabled integration we have an MCP server for, allow all of
+  // its tools via wildcard. CLI-backed channels (github/twitter/youtube)
+  // are not in extraMcpServers and rely on the system-prompt nudge below;
+  // the Bash tool itself can't be selectively gated per binary.
+  const allowedTools = Object.keys(opts.extraMcpServers).map(
+    (id) => `mcp__${id}__*`,
+  );
+
+  const args = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--input-format",
+    "stream-json",
+    "--include-partial-messages",
+    "--permission-mode",
+    opts.permissionMode,
+    "--mcp-config",
+    mcpConfig,
+    "--disallowed-tools",
+    "AskUserQuestion",
+    "--append-system-prompt",
+    appendIntegrationNote(UI_SYSTEM_PROMPT, opts.enabledIntegrations),
+    "--verbose",
+  ];
+  if (allowedTools.length > 0) {
+    args.push("--allowed-tools", allowedTools.join(","));
+  }
+  if (opts.resumeSessionId) {
+    args.push("--resume", opts.resumeSessionId);
+  }
+  return args;
+}
+
+function appendIntegrationNote(
+  base: string,
+  enabled: ReadonlyArray<Platform>,
+): string {
+  if (enabled.length === 0) return base;
+  const list = enabled.slice().sort().join(", ");
+  return `${base}\n\nActive integrations for this session: ${list}. Do not invoke other integration channels (CLIs like \`bird\`, \`gh\`, \`yt-dlp\`, \`rdt-cli\`, or MCP servers other than \`ccweb\` and the listed integrations) — they are disabled by user choice.`;
+}
+
 export class Session {
   readonly id: string;
   readonly cwd: string;
   readonly permissionMode: PermissionMode;
+  readonly enabledIntegrations: ReadonlyArray<Platform>;
+  readonly extraMcpServers: Readonly<Record<string, McpServerSpec>>;
 
   private child?: ChildProcessWithoutNullStreams;
   private decoder = new StreamJsonDecoder();
@@ -62,6 +146,8 @@ export class Session {
     this.id = opts.localId ?? randomUUID();
     this.cwd = opts.cwd;
     this.permissionMode = opts.permissionMode;
+    this.enabledIntegrations = opts.enabledIntegrations ?? [];
+    this.extraMcpServers = opts.extraMcpServers ?? {};
   }
 
   subscribe(cb: SessionSubscriber): () => void {
@@ -160,40 +246,12 @@ export class Session {
   }
 
   private buildArgs(resumeSessionId?: string): string[] {
-    // Load our stdio MCP worker via a JSON config passed as a string.
-    // The worker forwards `ask_user_question` calls to the main server
-    // over HTTP; see server/src/mcp/worker.ts.
-    const mcpConfig = JSON.stringify({
-      mcpServers: {
-        ccweb: {
-          type: "stdio",
-          command: "npx",
-          args: ["--yes", "tsx", MCP_WORKER_PATH],
-        },
-      },
+    return buildClaudeArgs({
+      permissionMode: this.permissionMode,
+      resumeSessionId,
+      enabledIntegrations: this.enabledIntegrations,
+      extraMcpServers: this.extraMcpServers,
     });
-
-    const args = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--input-format",
-      "stream-json",
-      "--include-partial-messages",
-      "--permission-mode",
-      this.permissionMode,
-      "--mcp-config",
-      mcpConfig,
-      "--disallowed-tools",
-      "AskUserQuestion",
-      "--append-system-prompt",
-      UI_SYSTEM_PROMPT,
-      "--verbose",
-    ];
-    if (resumeSessionId) {
-      args.push("--resume", resumeSessionId);
-    }
-    return args;
   }
 
   private emit(event: SessionEvent) {

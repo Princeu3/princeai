@@ -81,10 +81,19 @@ export async function registerWebSocket(app: FastifyInstance) {
           send({ type: "error", message: "already has an active session" });
           return;
         }
-        app.log.info({ cwd: msg.cwd, mode: msg.permissionMode }, "spawning new session");
+        app.log.info(
+          {
+            cwd: msg.cwd,
+            mode: msg.permissionMode,
+            integrations: msg.enabledIntegrations ?? [],
+          },
+          "spawning new session",
+        );
         const session = sessionManager.create({
           cwd: msg.cwd,
           permissionMode: msg.permissionMode,
+          enabledIntegrations: msg.enabledIntegrations,
+          // extraMcpServers comes from Sprint 3's registry; empty until then.
         });
         localSessionId = session.id;
         sessionSockets.set(localSessionId, socket);
@@ -178,6 +187,40 @@ export async function registerWebSocket(app: FastifyInstance) {
       }
       if (msg.type === "interrupt") {
         session.interrupt();
+        return;
+      }
+      if (msg.type === "set_toolset") {
+        // Mid-session retoggle: stop the current subprocess, then respawn
+        // on the same cwd with new flags, resuming the JSONL by id so the
+        // user keeps their conversation. The browser sees a fresh
+        // `session_ready` once init re-fires.
+        const claudeSessionId = session.getClaudeSessionId();
+        if (!claudeSessionId) {
+          send({
+            type: "error",
+            message: "session not ready yet — wait for init before changing toolset",
+          });
+          return;
+        }
+        const { cwd, permissionMode } = session;
+        app.log.info(
+          { cwd, integrations: msg.enabledIntegrations },
+          "restarting session with new toolset",
+        );
+        if (unsubscribe) {
+          unsubscribe();
+          unsubscribe = null;
+        }
+        sessionManager.remove(localSessionId);
+        const next = sessionManager.create({
+          cwd,
+          permissionMode,
+          resumeSessionId: claudeSessionId,
+          localId: localSessionId,
+          enabledIntegrations: msg.enabledIntegrations,
+          // extraMcpServers comes from Sprint 3's registry.
+        });
+        unsubscribe = next.subscribe(handleSessionEvent);
         return;
       }
       if (msg.type === "close_session") {

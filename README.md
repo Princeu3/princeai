@@ -3,7 +3,7 @@
 > **A localhost browser UI for Claude Code with toggleable MCP integrations.**
 > Chat with Claude Code in any tab, pick which integrations are active per session, manage credentials from a single panel — all running on `127.0.0.1`, no cloud, no auth.
 
-![status](https://img.shields.io/badge/status-Sprint%201%20of%206%20complete-amber)
+![status](https://img.shields.io/badge/status-Sprint%202%20of%206%20complete-amber)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![upstream](https://img.shields.io/badge/upstream-lucasprim%2Fclaude--code--web--ui-lightgrey)
 
@@ -32,7 +32,7 @@ This solves the first two; the next two come for free once you set it up behind 
 
 ## Status (honest)
 
-**Sprint 1 of 6 complete** — vendoring + chat UI works end-to-end. Sprints 2–6 build the integration management layer. See [`task-plans.md`](./task-plans.md) for the full roadmap (Epic → Sprint → Story → Phase, agile structure).
+**Sprint 2 of 6 complete** — vendoring + chat UI + per-session toolset wire protocol. Sprints 3–6 build the Connections panel, connect/disconnect flows, UI toolset selection, and polish. See [`task-plans.md`](./task-plans.md) for the full roadmap (Epic → Sprint → Story → Phase, agile structure).
 
 What works today:
 
@@ -47,7 +47,6 @@ What works today:
 
 What's coming:
 
-- Sprint 2: Wire-protocol extensions for per-session integration toggles
 - Sprint 3: Connections panel — see all your MCP + AgentReach integrations at a glance
 - Sprint 4: Connect/disconnect flows for each integration (Context7, Tavily, Exa, Reddit, Gmail, LinkedIn, GitHub, YouTube, Twitter)
 - Sprint 5: Per-session toolset selection (drives `--allowed-tools` whitelisting)

@@ -74,7 +74,7 @@ Upstream `ClientMessage` + `ServerMessage` stays. We add:
 // shared/src/types.ts (additions)
 export type Platform =
   | "reddit" | "twitter" | "linkedin" | "github"
-  | "youtube" | "exa" | "gmail" | "context7";
+  | "youtube" | "exa" | "tavily" | "gmail" | "context7";
 
 export type ConnectionState = "connected" | "missing" | "expired" | "unsupported";
 
@@ -226,17 +226,25 @@ This is the contents of `server/integrations.json`. **Adding a new integration =
 
 ---
 
-### Sprint 2 — Wire protocol extensions (no UI yet)
+### Sprint 2 — Wire protocol extensions (no UI yet) ✅
 
 **Story 2.1 — "The server understands per-session integration toggles."**
-- **Phase 2.1.1** Edit `shared/src/types.ts`: add `Platform`, `ConnectionState`, `PlatformStatus`, extend `new_session` with `enabledIntegrations: Platform[]`, add `set_toolset` ClientMessage (mid-session change → triggers a session restart on the same `cwd` with new flags).
-- **Phase 2.1.2** Edit `server/src/sessions/session.ts:buildArgs()`: accept `enabledIntegrations` and `extraMcpServers`, splice into `--mcp-config`, append to `--disallowed-tools` / `--allowed-tools` as appropriate, append a system-prompt note listing only the active CLIs.
-- **Phase 2.1.3** Pass-through in `server/src/ws.ts`: read `msg.enabledIntegrations` on `new_session`, hand to `sessionManager.create`.
-- **Phase 2.1.4** Unit-style smoke script: extend `server/scripts/smoke-session.ts` to assert `--mcp-config` includes a stub server when one is passed in.
+- **Phase 2.1.1 ✅** `shared/src/types.ts`: added `Platform` (9 incl. tavily), `ConnectionState`, `PlatformStatus`. Extended `new_session` with optional `enabledIntegrations`. Added `set_toolset` ClientMessage variant.
+- **Phase 2.1.2 ✅** `server/src/sessions/session.ts`: extracted `buildClaudeArgs()` as a pure exported function. Accepts `enabledIntegrations` + `extraMcpServers`, splices the latter into `--mcp-config` alongside `ccweb`, emits `--allowed-tools mcp__<id>__*` for each MCP server, appends a system-prompt note listing the active integrations.
+- **Phase 2.1.3 ✅** `server/src/ws.ts`: passes `msg.enabledIntegrations` through on `new_session`. Added `set_toolset` handler — stops the current subprocess, re-creates with the same cwd + new flags + `--resume <claudeSessionId>` so JSONL replay continues.
+- **Phase 2.1.4 ✅** `server/scripts/smoke-buildargs.ts` (new): unit-style assertions on `buildClaudeArgs()` output. Five cases: baseline; one extra MCP; multiple extras (comma-separated); CLI-only integrations (no `--allowed-tools`, present in prompt); resume + toggles compose. All passing.
 
-**Exit:** Backend honors per-session integration toggles, but UI doesn't expose them yet.
+**Exit ✅:** Backend honors per-session integration toggles. Sprint 3's registry will populate `extraMcpServers`; no further wire-protocol changes needed.
 
-**Verification:** Add a temporary `enabledIntegrations` array to the existing `NewSessionModal` payload manually; observe the spawned `claude` process args via `ps -ef | grep claude`.
+**Verification (recorded 2026-04-30 11:21pm CDT):**
+- `pnpm -r typecheck` — clean across shared/server/web.
+- `pnpm -C web-ui build` — clean.
+- `pnpm -C server exec tsx scripts/smoke-buildargs.ts` — 5/5 assertions pass.
+- Live WS injection (`cwd: /tmp`, `enabledIntegrations: [github, reddit, context7]`): `ps -ef | grep claude` shows the subprocess argv with `--mcp-config '{"mcpServers":{"ccweb":{...}}}'`, `--disallowed-tools AskUserQuestion`, and `--append-system-prompt` containing *"Active integrations for this session: context7, github, reddit"*. No `--allowed-tools` (correct — extras come from Sprint 3's registry).
+
+**Notes for Sprint 3:**
+- `--allowed-tools` wildcard caveat: anthropics/claude-code#13077 reports `mcp__server__*` silently failing via the CLI flag in some versions. If wildcards bite us, fall back to discover-then-list (run the server, enumerate tool names, pass them comma-separated). Wire protocol stays unchanged — server just changes the flag composition strategy.
+- `set_toolset` requires init to have fired (we error early otherwise so resume-by-id works). Sprint 5 UI should grey out toolset chips until `session_ready`.
 
 ---
 

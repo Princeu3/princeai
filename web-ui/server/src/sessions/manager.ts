@@ -23,6 +23,8 @@ export class SessionManager {
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
       localId: opts.localId,
+      enabledIntegrations: opts.enabledIntegrations,
+      extraMcpServers: opts.extraMcpServers,
     });
     this.sessions.set(session.id, session);
     session.start({ resumeSessionId: opts.resumeSessionId });

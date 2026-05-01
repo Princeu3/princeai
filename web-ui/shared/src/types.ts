@@ -9,6 +9,31 @@
 // --permission-prompt-tool (which is absent in the current claude version).
 export type PermissionMode = "acceptEdits" | "bypassPermissions" | "plan";
 
+// ─── Per-session integration toggles ──────────────────────────────────────
+// The Connections panel (Sprint 3+) discovers available integrations from a
+// JSON registry on the server. This wire-protocol layer carries only the
+// IDs the user has enabled for a given session — the server resolves each
+// ID against the registry to compute --mcp-config / --allowed-tools flags.
+export type Platform =
+  | "reddit"
+  | "twitter"
+  | "linkedin"
+  | "github"
+  | "youtube"
+  | "exa"
+  | "tavily"
+  | "gmail"
+  | "context7";
+
+export type ConnectionState = "connected" | "missing" | "expired" | "unsupported";
+
+export interface PlatformStatus {
+  platform: Platform;
+  state: ConnectionState;
+  detail?: string;
+  lastCheckedAt: number;
+}
+
 // ─── Session metadata surfaced from the `system/init` event ───────────────
 export interface SessionInfo {
   sessionId: string;
@@ -42,11 +67,22 @@ export interface RateLimitInfo {
 }
 
 // ─── Client → Server (over WebSocket) ─────────────────────────────────────
+// `enabledIntegrations` on `new_session` is optional: pre-Sprint-5 UI doesn't
+// send it, and the server defaults to an empty list (no integrations).
+// `set_toolset` retoggles mid-session — server stops the subprocess and
+// respawns it on the same cwd with new flags, resuming the JSONL by id.
 export type ClientMessage =
-  | { type: "new_session"; cwd: string; permissionMode: PermissionMode; title?: string }
+  | {
+      type: "new_session";
+      cwd: string;
+      permissionMode: PermissionMode;
+      title?: string;
+      enabledIntegrations?: Platform[];
+    }
   | { type: "open_session"; sessionId: string }
   | { type: "user_input"; text: string }
   | { type: "answer_question"; questionId: string; answers: string[] }
+  | { type: "set_toolset"; enabledIntegrations: Platform[] }
   | { type: "interrupt" }
   | { type: "close_session" };
 
