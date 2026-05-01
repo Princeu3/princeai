@@ -1,0 +1,17 @@
+node_modules/
+.DS_Store
+
+# vendored web-ui build artifacts
+web-ui/data/
+web-ui/**/dist/
+web-ui/**/.turbo/
+
+# logs and env
+*.log
+.env
+.env.local
+
+# editor / OS
+.vscode/
+.idea/
+*.swp

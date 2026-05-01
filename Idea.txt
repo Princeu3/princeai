@@ -1,0 +1,85 @@
+Backstory: Currently for searching these platforms:
+⏺ Bash(agent-reach doctor)
+  ⎿  Agent Reach 状态
+     ========================================
+     … +27 lines (ctrl+o to expand)
+
+⏺ Agent Reach status: 11/16 channels available.
+
+  Ready to use: GitHub, YouTube, Reddit (logged in as Ok-Common-2190), RSS, Exa web search, Jina Reader, Twitter/X (logged in),
+  LinkedIn.
+
+  I am using AgentReach which helped me set them up. 
+
+  I also have context7 docs connected via claude connectors, here is the list from claude connectors
+  GitHub Integration
+Connected
+
+
+Apollo.io
+
+Canva
+Interactive
+
+Clerk
+Context7 icon
+Context7
+
+Exa
+
+Excalidraw
+Interactive
+
+Figma
+Interactive
+Gmail icon
+Gmail
+Google Calendar icon
+Google Calendar
+
+Granola
+
+Hugging Face
+Intuit TurboTax icon
+Intuit TurboTax
+Interactive
+
+Linear
+
+LunarCrush
+
+Mermaid Chart
+Notion icon
+Notion
+PDF Viewer icon
+PDF Viewer
+
+Plaid Developer Tools
+
+Supabase
+Tavily icon
+Tavily
+Three.js 3D Viewer icon
+Three.js 3D Viewer
+
+Trivago
+
+Uber
+Interactive
+
+Uber Eats
+Interactive
+
+Vercel
+
+Viator
+Interactive
+
+Vibe Prospecting
+
+-- I dont want them all. I care about these honestly for day to day coding 
+Reddit, Twitter, Linkedin, Github, Youtube, Websearch, Gmail, Context7 
+
+So using already existing Agent Reach configurations, can we build a UI that is build on top of claude code that helps you with an interactive
+layer to connect all of these one by one set them up, At will enable their use by toggle ? 
+It would always be local based model as the agent reach config uses browser cookies sessions for most of the things. 
